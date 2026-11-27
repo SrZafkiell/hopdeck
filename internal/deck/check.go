@@ -248,7 +248,7 @@ func (c *checker) tunnel(node *yaml.Node, field, defaultRegion string) (Tunnel, 
 	}
 	if port := c.required(fields, node.Line, field, "local_port"); port != nil {
 		portLine = port.Line
-		tunnel.LocalPort, _ = c.integer(port, field+".local_port", 1024, 65535)
+		tunnel.LocalPort, _ = c.integer(port, field+".local_port", MinLocalPort, MaxLocalPort)
 	}
 	return tunnel, nameLine, portLine
 }
