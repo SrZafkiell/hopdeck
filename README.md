@@ -34,6 +34,7 @@ services, such as a database, from a shared deck file.
 |---|---|
 | The plan of every module | [clouddecks/docs/plan](https://github.com/SrZafkiell/clouddecks/tree/main/docs/plan) |
 | The overview and the decisions | [clouddecks/docs/PLAN.md](https://github.com/SrZafkiell/clouddecks/blob/main/docs/PLAN.md) |
+| The decision records | [clouddecks/docs/adr](https://github.com/SrZafkiell/clouddecks/tree/main/docs/adr) |
 | The risk register | [clouddecks/docs/RISKS.md](https://github.com/SrZafkiell/clouddecks/blob/main/docs/RISKS.md) |
 | The steps of this repository | [Issues](https://github.com/SrZafkiell/hopdeck/issues) |
 
