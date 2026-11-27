@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -57,7 +59,7 @@ func parsedFiles(t *testing.T) []deck.File {
 }
 
 func TestSnapshotOf(t *testing.T) {
-	snapshot := snapshotOf("C:/decks", parsedFiles(t), nil, nil, nil)
+	snapshot := snapshotOf("C:/decks", parsedFiles(t), nil, settings.Defaults(), nil)
 	if snapshot.Folder != "C:/decks" || snapshot.Error != "" || len(snapshot.Decks) != 2 {
 		t.Fatalf("snapshot: %+v", snapshot)
 	}
@@ -76,7 +78,7 @@ func TestSnapshotOf(t *testing.T) {
 	orders, web := team.Tunnels[0], team.Tunnels[1]
 	if orders.ID != "team.hopdeck.yaml/orders-db" || orders.Deck != "Team databases" || orders.DeckFile != "team.hopdeck.yaml" ||
 		orders.JumpHost != "i-1234567890abcdef0" || orders.RemoteHost != "orders.db.example.internal" ||
-		orders.RemotePort != 3306 || orders.LocalPort != 13306 || orders.State != "idle" || orders.Profile != nil {
+		orders.RemotePort != 3306 || orders.LocalPort != 13306 || orders.DeckPort != 13306 || orders.State != "idle" || orders.Profile != nil {
 		t.Errorf("orders-db: %+v", orders)
 	}
 	if orders.Reason != reasonNoProfile {
@@ -88,7 +90,8 @@ func TestSnapshotOf(t *testing.T) {
 }
 
 func TestSnapshotOfAppliesTheChosenProfile(t *testing.T) {
-	chosen := map[string]string{"team.hopdeck.yaml": "example-dev"}
+	chosen := settings.Defaults()
+	chosen.Profiles["team.hopdeck.yaml"] = "example-dev"
 
 	snapshot := snapshotOf("C:/decks", parsedFiles(t), nil, chosen, map[string]bool{"example-dev": true})
 	team := snapshot.Decks[1]
@@ -114,15 +117,29 @@ func TestSnapshotOfAppliesTheChosenProfile(t *testing.T) {
 	}
 }
 
+func TestSnapshotOfAppliesTheChosenPort(t *testing.T) {
+	chosen := settings.Defaults()
+	chosen.Ports["team.hopdeck.yaml"] = map[string]int{"orders-db": 13307}
+	chosen.Ports["broken.hopdeck.yaml"] = map[string]int{"orders-db": 13308}
+
+	tunnels := snapshotOf("C:/decks", parsedFiles(t), nil, chosen, nil).Decks[1].Tunnels
+	if orders := tunnels[0]; orders.LocalPort != 13307 || orders.DeckPort != 13306 {
+		t.Errorf("orders-db: local %d, deck %d", orders.LocalPort, orders.DeckPort)
+	}
+	if web := tunnels[1]; web.LocalPort != 18080 || web.DeckPort != 18080 {
+		t.Errorf("web: local %d, deck %d", web.LocalPort, web.DeckPort)
+	}
+}
+
 func TestSnapshotOfAnUnreadableFolder(t *testing.T) {
-	snapshot := snapshotOf("C:/decks", nil, errors.New("access is denied"), nil, nil)
+	snapshot := snapshotOf("C:/decks", nil, errors.New("access is denied"), settings.Defaults(), nil)
 	if snapshot.Error != "access is denied" || snapshot.Decks == nil || len(snapshot.Decks) != 0 {
 		t.Fatalf("snapshot: %+v", snapshot)
 	}
 }
 
 func TestSnapshotOfAPlainError(t *testing.T) {
-	snapshot := snapshotOf("C:/decks", []deck.File{{Name: "x.hopdeck.yaml", Err: errors.New("permission denied")}}, nil, nil, nil)
+	snapshot := snapshotOf("C:/decks", []deck.File{{Name: "x.hopdeck.yaml", Err: errors.New("permission denied")}}, nil, settings.Defaults(), nil)
 	problems := snapshot.Decks[0].Problems
 	if len(problems) != 1 || problems[0].Text != "permission denied" || problems[0].Line != 0 {
 		t.Fatalf("problems: %+v", problems)
@@ -182,11 +199,28 @@ func newFixture(t *testing.T) *fixture {
 
 func (f *fixture) savedChoices(t *testing.T) map[string]string {
 	t.Helper()
+	return f.saved(t).Profiles
+}
+
+func (f *fixture) saved(t *testing.T) settings.Settings {
+	t.Helper()
 	loaded, notice := settings.NewStore(f.settingsPath).Load()
 	if notice != "" {
 		t.Fatalf("settings: %s", notice)
 	}
-	return loaded.Profiles
+	return loaded
+}
+
+// tunnelView returns a tunnel of the team deck file from the service's latest snapshot.
+func (f *fixture) tunnelView(t *testing.T, name string) TunnelView {
+	t.Helper()
+	for _, tunnel := range f.service.Snapshot().Decks[0].Tunnels {
+		if tunnel.Name == name {
+			return tunnel
+		}
+	}
+	t.Fatalf("no tunnel %s", name)
+	return TunnelView{}
 }
 
 func TestChooseProfile(t *testing.T) {
@@ -282,5 +316,118 @@ func TestCheckProfilePassesTheStateOn(t *testing.T) {
 	view := f.service.CheckProfile("other", "us-east-1")
 	if view.State != "needs-sign-in" || view.Account != "" || !strings.Contains(view.Reason, "sign-in") {
 		t.Fatalf("got %+v", view)
+	}
+}
+
+func TestChoosePort(t *testing.T) {
+	f := newFixture(t)
+	deckBefore, _ := os.ReadFile(f.deckPath)
+
+	if err := f.service.ChoosePort("team.hopdeck.yaml", "orders-db", 13307); err != nil {
+		t.Fatalf("ChoosePort: %v", err)
+	}
+	last := f.emitted[len(f.emitted)-1].Decks[0].Tunnels[0]
+	if last.Name != "orders-db" || last.LocalPort != 13307 || last.DeckPort != 13306 {
+		t.Fatalf("the window did not get the choice: %+v", last)
+	}
+	if got := f.saved(t).Ports["team.hopdeck.yaml"]["orders-db"]; got != 13307 {
+		t.Fatalf("the settings file holds %d", got)
+	}
+	if deckAfter, _ := os.ReadFile(f.deckPath); string(deckAfter) != string(deckBefore) {
+		t.Fatal("the deck file was changed")
+	}
+
+	// Choosing a profile afterwards keeps the port.
+	if err := f.service.ChooseProfile("team.hopdeck.yaml", "example-dev"); err != nil {
+		t.Fatal(err)
+	}
+	if saved := f.saved(t); saved.Ports["team.hopdeck.yaml"]["orders-db"] != 13307 || saved.Profiles["team.hopdeck.yaml"] != "example-dev" {
+		t.Fatalf("a profile choice lost the port: %+v", saved)
+	}
+
+	// The deck file's own port, and 0, go back to the deck file's.
+	for _, back := range []int{13306, 0} {
+		if err := f.service.ChoosePort("team.hopdeck.yaml", "orders-db", 13309); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.service.ChoosePort("team.hopdeck.yaml", "orders-db", back); err != nil {
+			t.Fatalf("going back with %d: %v", back, err)
+		}
+		if ports := f.saved(t).Ports; len(ports) != 0 {
+			t.Fatalf("going back with %d left %v", back, ports)
+		}
+		if orders := f.tunnelView(t, "orders-db"); orders.LocalPort != 13306 {
+			t.Fatalf("going back with %d: local port %d", back, orders.LocalPort)
+		}
+	}
+}
+
+func TestChoosePortRefuses(t *testing.T) {
+	f := newFixture(t)
+	cases := []struct {
+		name, file, tunnel string
+		port               int
+		says               string
+	}{
+		{"a port below 1024", "team.hopdeck.yaml", "orders-db", 80, "between 1024 and 65535"},
+		{"a port above 65535", "team.hopdeck.yaml", "orders-db", 70000, "between 1024 and 65535"},
+		{"the port of another tunnel", "team.hopdeck.yaml", "orders-db", 18080, "the tunnel web of the deck Team databases"},
+		{"a tunnel that does not exist", "team.hopdeck.yaml", "nope", 13307, "not in a loaded deck file"},
+		{"a deck file that is not loaded", "missing.hopdeck.yaml", "orders-db", 13307, "not in a loaded deck file"},
+	}
+	for _, tc := range cases {
+		err := f.service.ChoosePort(tc.file, tc.tunnel, tc.port)
+		if err == nil || !strings.Contains(err.Error(), tc.says) {
+			t.Errorf("%s: %v", tc.name, err)
+		}
+	}
+	if ports := f.saved(t).Ports; len(ports) != 0 {
+		t.Fatalf("a refused choice was saved: %v", ports)
+	}
+
+	// A port chosen for one tunnel is refused for another one.
+	if err := f.service.ChoosePort("team.hopdeck.yaml", "orders-db", 13307); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.service.ChoosePort("team.hopdeck.yaml", "web", 13307); err == nil || !strings.Contains(err.Error(), "orders-db") {
+		t.Fatalf("a port chosen for orders-db was given to web: %v", err)
+	}
+}
+
+// TestCheckPort holds a real port on 127.0.0.1, moves a tunnel onto it and checks it.
+func TestCheckPort(t *testing.T) {
+	f := newFixture(t)
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	port := held.Addr().(*net.TCPAddr).Port
+
+	if err := f.service.ChoosePort("team.hopdeck.yaml", "orders-db", port); err != nil {
+		t.Fatal(err)
+	}
+	// The next port belongs to the other tunnel, so it is never suggested.
+	if err := f.service.ChoosePort("team.hopdeck.yaml", "web", port+1); err != nil {
+		t.Fatal(err)
+	}
+
+	busy := f.service.CheckPort("team.hopdeck.yaml", "orders-db")
+	if busy.Free || busy.Port != port || !strings.Contains(busy.Reason, "Port "+strconv.Itoa(port)+" ") {
+		t.Fatalf("a held port: %+v", busy)
+	}
+	if busy.Suggestion <= port+1 || busy.Suggestion > port+20 {
+		t.Fatalf("suggestion %d for %d", busy.Suggestion, port)
+	}
+
+	held.Close()
+	free := f.service.CheckPort("team.hopdeck.yaml", "orders-db")
+	if !free.Free || free.Port != port || free.Reason != "" || free.Suggestion != 0 {
+		t.Fatalf("a released port: %+v", free)
+	}
+
+	unknown := f.service.CheckPort("team.hopdeck.yaml", "nope")
+	if unknown.Free || !strings.Contains(unknown.Reason, "nope") {
+		t.Fatalf("an unknown tunnel: %+v", unknown)
 	}
 }
