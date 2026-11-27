@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Hopdeck
+Comment=AWS Session Manager tunnels from a shared deck file
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/hopdeck.exe %u
+Terminal=false
+Type=Application
+Icon=hopdeck.exe
+Categories=Utility;
+StartupWMClass=hopdeck.exe
+
+ 
