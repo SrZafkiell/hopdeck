@@ -109,3 +109,9 @@ func TestThePauseEndsWithTheContext(t *testing.T) {
 		t.Fatalf("got %+v after %v", result, time.Since(start))
 	}
 }
+
+func TestFromError(t *testing.T) {
+	if result := FromError(fake.NeedsMFA("load profile")); result.State != NeedsMFA {
+		t.Fatalf("got %+v", result)
+	}
+}

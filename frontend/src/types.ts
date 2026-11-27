@@ -98,6 +98,21 @@ export interface ProfileList {
 export interface ProfileSource {
   list(): Promise<ProfileList>;
   choose(deckFile: string, profile: string): Promise<void>;
+  /** Asks AWS who the profile's credentials belong to; region is used when the profile
+   * sets none. */
+  check(profile: string, region: string): Promise<IdentityResult>;
+}
+
+export type IdentityState =
+  "valid" | "expired" | "needs-mfa" | "needs-sign-in" | "error";
+
+/** The answer of an identity check: the account and the caller when valid, the reason
+ * when not. */
+export interface IdentityResult {
+  state: IdentityState;
+  account: string;
+  caller: string;
+  reason: string;
 }
 
 export const kindLabels: Record<ProfileKind, string> = {

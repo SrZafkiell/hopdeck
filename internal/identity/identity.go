@@ -76,6 +76,12 @@ func (c Checker) Check(ctx context.Context, sts awsapi.STS) Result {
 	}
 }
 
+// FromError sorts a failure that happened before STS could be asked, such as loading the
+// profile, into the same states as Check.
+func FromError(err error) Result {
+	return resultOf(err)
+}
+
 // resultOf sorts a failed check into a state with a reason in plain words.
 func resultOf(err error) Result {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

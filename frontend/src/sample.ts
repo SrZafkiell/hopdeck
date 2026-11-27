@@ -102,6 +102,37 @@ export function sampleProfiles(
     async list() {
       return { profiles: sampleProfileOptions, error: "" };
     },
+    async check(profile) {
+      const none = { account: "", caller: "" };
+      switch (profile) {
+        case "example-dev":
+          return {
+            state: "valid",
+            account: "123456789012",
+            caller: "arn:aws:iam::123456789012:user/example-user",
+            reason: "",
+          };
+        case "example-admin":
+          return {
+            state: "needs-mfa",
+            ...none,
+            reason: "This profile asks for an MFA code before it can be used.",
+          };
+        case "example-sso":
+          return {
+            state: "needs-sign-in",
+            ...none,
+            reason:
+              "The IAM Identity Center sign-in of this profile has expired or has not happened yet.",
+          };
+        default:
+          return {
+            state: "error",
+            ...none,
+            reason: `The profile ${profile} is not in your AWS configuration files.`,
+          };
+      }
+    },
     async choose(deckFile, profile) {
       apply((snapshot) => ({
         ...snapshot,
