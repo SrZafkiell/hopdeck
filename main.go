@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/SrZafkiell/hopdeck/internal/appdir"
+	"github.com/SrZafkiell/hopdeck/internal/profiles"
 	"github.com/SrZafkiell/hopdeck/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -30,7 +31,18 @@ func main() {
 	if err := store.Save(current); err != nil {
 		log.Printf("settings not saved: %v", err)
 	}
-	decks := NewDeckService(folder, notice)
+	profileFiles, err := profiles.DefaultFiles()
+	if err != nil {
+		// Without a home folder there are no AWS files to read; the chooser then says so.
+		log.Printf("the AWS configuration files cannot be located: %v", err)
+	}
+	decks := NewDeckService(DeckServiceOptions{
+		Folder:       folder,
+		Notice:       notice,
+		Store:        store,
+		Settings:     current,
+		ProfileFiles: profileFiles,
+	})
 
 	app := application.New(application.Options{
 		Name:        "Hopdeck",
