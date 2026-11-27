@@ -47,6 +47,8 @@ export interface Snapshot {
   /** Set when the folder itself cannot be read. */
   error: string;
   decks: DeckFile[];
+  /** Something Hopdeck did on its own that the person should know; empty if nothing. */
+  notice: string;
 }
 
 /** A row of the list: a tunnel, or a deck file that cannot be read. */
@@ -54,7 +56,12 @@ export type Row =
   | { kind: "tunnel"; id: string; tunnel: Tunnel }
   | { kind: "broken"; id: string; deck: DeckFile };
 
-export const emptySnapshot: Snapshot = { folder: "", error: "", decks: [] };
+export const emptySnapshot: Snapshot = {
+  folder: "",
+  error: "",
+  decks: [],
+  notice: "",
+};
 
 export const stateLabels: Record<TunnelState, string> = {
   idle: "Not connected",

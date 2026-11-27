@@ -29,6 +29,7 @@ export function toSnapshot(model: models.Snapshot): Snapshot {
   return {
     folder: model.folder,
     error: model.error,
+    notice: model.notice,
     decks: (model.decks ?? []).map((deck) => ({
       file: deck.file,
       name: deck.name,
