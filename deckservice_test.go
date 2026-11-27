@@ -79,3 +79,16 @@ func TestSnapshotOfAPlainError(t *testing.T) {
 		t.Fatalf("problems: %+v", problems)
 	}
 }
+
+func TestNoticeStaysInEverySnapshot(t *testing.T) {
+	service := NewDeckService("C:/decks", "The settings file could not be used.")
+	if got := service.Snapshot().Notice; got != "The settings file could not be used." {
+		t.Fatalf("first snapshot: %q", got)
+	}
+	var emitted Snapshot
+	service.emit = func(snapshot Snapshot) { emitted = snapshot }
+	service.update(nil, nil)
+	if service.Snapshot().Notice == "" || emitted.Notice == "" {
+		t.Fatalf("the notice was lost on update: %+v", emitted)
+	}
+}

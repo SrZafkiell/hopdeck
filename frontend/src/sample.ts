@@ -7,6 +7,7 @@ import type { Snapshot } from "./types";
 export const sampleSnapshot: Snapshot = {
   folder: "C:\\Users\\example\\AppData\\Roaming\\Hopdeck\\decks",
   error: "",
+  notice: "",
   decks: [
     {
       file: "old-team.hopdeck.yaml",

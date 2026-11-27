@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/SrZafkiell/hopdeck/internal/appdir"
+	"github.com/SrZafkiell/hopdeck/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -18,7 +19,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("the decks folder cannot be created: %v", err)
 	}
-	decks := NewDeckService(folder)
+	settingsPath, err := appdir.SettingsFile()
+	if err != nil {
+		log.Fatalf("the settings file cannot be located: %v", err)
+	}
+	store := settings.NewStore(settingsPath)
+	current, notice := store.Load()
+	// Writing the settings back creates the file on the first start and keeps it in the
+	// current schema version. A store that could not read the file refuses to write.
+	if err := store.Save(current); err != nil {
+		log.Printf("settings not saved: %v", err)
+	}
+	decks := NewDeckService(folder, notice)
 
 	app := application.New(application.Options{
 		Name:        "Hopdeck",

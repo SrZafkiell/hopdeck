@@ -30,6 +30,9 @@ type Snapshot struct {
 	// Error is set when the folder itself cannot be read.
 	Error string     `json:"error"`
 	Decks []DeckFile `json:"decks"`
+	// Notice tells the person about something Hopdeck did on its own, such as setting a
+	// damaged settings file aside; empty when there is nothing to tell.
+	Notice string `json:"notice"`
 }
 
 // DeckFile is one deck file: its tunnels, or the problems that keep it from loading.
@@ -66,6 +69,7 @@ type TunnelView struct {
 // place that turns the Go core's decks into what the window shows.
 type DeckService struct {
 	folder string
+	notice string
 	// emit sends a new snapshot to the window; main sets it once the app exists.
 	emit func(Snapshot)
 
@@ -74,9 +78,14 @@ type DeckService struct {
 	stop     context.CancelFunc
 }
 
-// NewDeckService returns a service for the given decks folder.
-func NewDeckService(folder string) *DeckService {
-	return &DeckService{folder: folder, snapshot: Snapshot{Folder: folder, Decks: []DeckFile{}}}
+// NewDeckService returns a service for the given decks folder. The notice, if any, is
+// shown in the window until the person dismisses it.
+func NewDeckService(folder, notice string) *DeckService {
+	return &DeckService{
+		folder:   folder,
+		notice:   notice,
+		snapshot: Snapshot{Folder: folder, Decks: []DeckFile{}, Notice: notice},
+	}
 }
 
 // Snapshot returns what the decks folder holds now.
@@ -108,6 +117,7 @@ func (s *DeckService) ServiceShutdown() error {
 
 func (s *DeckService) update(files []deck.File, err error) {
 	snapshot := snapshotOf(s.folder, files, err)
+	snapshot.Notice = s.notice
 	s.mu.Lock()
 	s.snapshot = snapshot
 	emit := s.emit

@@ -18,6 +18,7 @@ function App() {
     usingSample ? sampleSnapshot : emptySnapshot,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
 
   useEffect(() => {
     if (usingSample) {
@@ -31,6 +32,14 @@ function App() {
 
   return (
     <div className="app">
+      {snapshot.notice && !noticeDismissed && (
+        <div className="notice" role="status">
+          <span>{snapshot.notice}</span>
+          <button type="button" onClick={() => setNoticeDismissed(true)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="panes">
         <nav className="pane list-pane" aria-label="Tunnel list">
           <TunnelList
