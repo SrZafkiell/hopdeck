@@ -86,4 +86,3 @@ tasks:
       - task: common:frontend:run
         vars:
           SCRIPT: format
-

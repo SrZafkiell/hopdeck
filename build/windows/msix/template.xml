@@ -21,7 +21,7 @@
         PackageDescription="AWS Session Manager tunnels from a shared deck file">
         <Capabilities>
             <Capability Name="runFullTrust" />
-            
+
         </Capabilities>
         <Applications>
             <Application
@@ -30,7 +30,7 @@
                 DisplayName="Hopdeck"
                 ExecutableName="hopdeck.exe"
                 EntryPoint="Windows.FullTrustApplication">
-                
+
             </Application>
         </Applications>
         <Resources>
