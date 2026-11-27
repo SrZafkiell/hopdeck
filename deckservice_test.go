@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/SrZafkiell/hopdeck/internal/deck"
+	"github.com/SrZafkiell/hopdeck/internal/identity"
 	"github.com/SrZafkiell/hopdeck/internal/profiles"
 	"github.com/SrZafkiell/hopdeck/internal/settings"
 )
@@ -246,5 +248,39 @@ func TestProfilesListsNamesAndKindsOnly(t *testing.T) {
 	}
 	if strings.Contains(string(data), "AKIAIOSFODNN7EXAMPLE") || strings.Contains(string(data), "wJalrXUtnFEMI") {
 		t.Fatalf("the list carries a credential: %s", data)
+	}
+}
+
+func TestCheckProfile(t *testing.T) {
+	f := newFixture(t)
+	var asked []string
+	f.service.check = func(_ context.Context, profile, region string) identity.Result {
+		asked = append(asked, profile+"@"+region)
+		return identity.Result{State: identity.Valid, Account: "123456789012", Caller: "arn:aws:iam::123456789012:user/example-user"}
+	}
+
+	view := f.service.CheckProfile("example-dev", "eu-west-1")
+	if view.State != "valid" || view.Account != "123456789012" || view.Caller == "" || view.Reason != "" {
+		t.Fatalf("got %+v", view)
+	}
+	f.service.CheckProfile("example-dev", "not a region")
+	if len(asked) != 2 || asked[0] != "example-dev@eu-west-1" || asked[1] != "example-dev@"+fallbackRegion {
+		t.Fatalf("asked %v", asked)
+	}
+
+	unknown := f.service.CheckProfile("not-here", "us-east-1")
+	if unknown.State != "error" || !strings.Contains(unknown.Reason, "not-here") || len(asked) != 2 {
+		t.Fatalf("an unknown profile: %+v, asked %v", unknown, asked)
+	}
+}
+
+func TestCheckProfilePassesTheStateOn(t *testing.T) {
+	f := newFixture(t)
+	f.service.check = func(context.Context, string, string) identity.Result {
+		return identity.Result{State: identity.NeedsSignIn, Reason: "The IAM Identity Center sign-in of this profile has expired or has not happened yet."}
+	}
+	view := f.service.CheckProfile("other", "us-east-1")
+	if view.State != "needs-sign-in" || view.Account != "" || !strings.Contains(view.Reason, "sign-in") {
+		t.Fatalf("got %+v", view)
 	}
 }

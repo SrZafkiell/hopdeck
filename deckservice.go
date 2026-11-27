@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/SrZafkiell/hopdeck/internal/awsapi/awssdk"
 	"github.com/SrZafkiell/hopdeck/internal/deck"
+	"github.com/SrZafkiell/hopdeck/internal/identity"
 	"github.com/SrZafkiell/hopdeck/internal/profiles"
 	"github.com/SrZafkiell/hopdeck/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -24,6 +27,15 @@ const pollInterval = 2 * time.Second
 
 // reasonNoProfile is the reason of every tunnel of a deck file that has no profile yet.
 const reasonNoProfile = "No AWS profile is chosen for this deck file yet."
+
+// checkTimeout bounds one identity check, so a hung network never blocks the window.
+const checkTimeout = 30 * time.Second
+
+// fallbackRegion is used for the identity check when neither the profile nor the
+// tunnel gives a usable region.
+const fallbackRegion = "us-east-1"
+
+var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$`)
 
 func init() {
 	application.RegisterEvent[Snapshot](eventDecks)
@@ -90,6 +102,16 @@ type ProfileList struct {
 	Error string `json:"error"`
 }
 
+// IdentityView is the answer of an identity check as the window shows it: the state
+// (valid, expired, needs-mfa, needs-sign-in or error), the account and the caller when
+// valid, and the reason when not.
+type IdentityView struct {
+	State   string `json:"state"`
+	Account string `json:"account"`
+	Caller  string `json:"caller"`
+	Reason  string `json:"reason"`
+}
+
 // DeckServiceOptions are what the deck service starts with.
 type DeckServiceOptions struct {
 	// Folder is the decks folder.
@@ -101,6 +123,9 @@ type DeckServiceOptions struct {
 	Settings settings.Settings
 	// ProfileFiles are the AWS configuration files the profiles come from.
 	ProfileFiles profiles.Files
+	// Check asks AWS who a profile's credentials belong to. When nil, the AWS SDK does,
+	// with the profile from ProfileFiles; tests set a fake.
+	Check func(ctx context.Context, profile, region string) identity.Result
 }
 
 // DeckService watches the decks folder, keeps the profile chosen for each deck file, and
@@ -112,6 +137,7 @@ type DeckService struct {
 	notice       string
 	store        *settings.Store
 	profileFiles profiles.Files
+	check        func(ctx context.Context, profile, region string) identity.Result
 	// emit sends a new snapshot to the window; main sets it once the app exists.
 	emit func(Snapshot)
 
@@ -132,11 +158,16 @@ func NewDeckService(options DeckServiceOptions) *DeckService {
 	if current.Profiles == nil {
 		current = settings.Defaults()
 	}
+	check := options.Check
+	if check == nil {
+		check = sdkCheck(options.ProfileFiles)
+	}
 	return &DeckService{
 		folder:       options.Folder,
 		notice:       options.Notice,
 		store:        options.Store,
 		profileFiles: options.ProfileFiles,
+		check:        check,
 		settings:     current,
 		snapshot:     Snapshot{Folder: options.Folder, Decks: []DeckFile{}, Notice: options.Notice},
 	}
@@ -206,6 +237,39 @@ func (s *DeckService) ChooseProfile(deckFile, profile string) error {
 	s.mu.Unlock()
 	s.refresh()
 	return nil
+}
+
+// CheckProfile asks AWS who the credentials of one of this computer's profiles belong
+// to, with sts:GetCallerIdentity, which needs no permission and changes nothing. region
+// is used when the profile sets none; an empty or malformed region falls back to
+// us-east-1. The credentials stay in memory for the check only.
+func (s *DeckService) CheckProfile(profile, region string) IdentityView {
+	known, err := s.knownProfiles()
+	if err != nil {
+		return IdentityView{State: string(identity.Failed), Reason: "The AWS configuration files cannot be read: " + err.Error()}
+	}
+	if !known[profile] {
+		return IdentityView{State: string(identity.Failed), Reason: fmt.Sprintf("The profile %s is not in your AWS configuration files.", profile)}
+	}
+	if !regionPattern.MatchString(region) {
+		region = fallbackRegion
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
+	defer cancel()
+	result := s.check(ctx, profile, region)
+	return IdentityView{State: string(result.State), Account: result.Account, Caller: result.Caller, Reason: result.Reason}
+}
+
+// sdkCheck checks a profile with the AWS SDK: it loads the profile from the AWS files
+// and asks STS who the caller is.
+func sdkCheck(files profiles.Files) func(ctx context.Context, profile, region string) identity.Result {
+	return func(ctx context.Context, profile, region string) identity.Result {
+		cfg, err := awssdk.LoadProfile(ctx, profile, files, region)
+		if err != nil {
+			return identity.FromError(err)
+		}
+		return identity.Checker{}.Check(ctx, awssdk.NewSTS(cfg))
+	}
 }
 
 // ServiceStartup starts watching the decks folder when the app starts.
