@@ -4,7 +4,10 @@ go 1.26.0
 
 toolchain go1.27.4
 
-require github.com/wailsapp/wails/v3 v3.1.0
+require (
+	github.com/wailsapp/wails/v3 v3.1.0
+	go.yaml.in/yaml/v3 v3.0.6
+)
 
 require (
 	github.com/coder/websocket v1.8.14 // indirect
