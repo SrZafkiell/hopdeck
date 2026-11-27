@@ -238,3 +238,23 @@ code {
   color: var(--fg-muted);
   font-size: 12px;
 }
+
+.profile-chooser select {
+  min-width: 260px;
+  padding: 2px 6px;
+  font: inherit;
+}
+
+.chooser-note,
+.chooser-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.chooser-note {
+  color: var(--fg-muted);
+}
+
+.chooser-error {
+  color: var(--bad);
+}

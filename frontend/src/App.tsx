@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DetailPane } from "./components/DetailPane";
 import { EmptyState } from "./components/EmptyState";
 import { StatusBar } from "./components/StatusBar";
 import { TunnelList } from "./components/TunnelList";
-import { watchDecks } from "./decks";
-import { sampleSnapshot } from "./sample";
-import { emptySnapshot, rowsOf, type Snapshot } from "./types";
+import { goProfiles, watchDecks } from "./decks";
+import { sampleProfiles, sampleSnapshot } from "./sample";
+import {
+  emptySnapshot,
+  rowsOf,
+  type ProfileSource,
+  type Snapshot,
+} from "./types";
 
 // In development, ?sample in the address shows a made-up decks folder instead of the
 // real one. Production builds drop this branch and the sample data with it.
@@ -19,6 +24,10 @@ function App() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const profiles = useMemo<ProfileSource>(
+    () => (usingSample ? sampleProfiles(setSnapshot) : goProfiles),
+    [],
+  );
 
   useEffect(() => {
     if (usingSample) {
@@ -52,7 +61,7 @@ function App() {
           {rows.length === 0 ? (
             <EmptyState folder={snapshot.folder} error={snapshot.error} />
           ) : (
-            <DetailPane row={selected} />
+            <DetailPane row={selected} profiles={profiles} />
           )}
         </main>
       </div>

@@ -1,4 +1,4 @@
-import type { Snapshot } from "./types";
+import type { ProfileOption, ProfileSource, Snapshot, Tunnel } from "./types";
 
 // A made-up decks folder for development previews: open the dev server with ?sample in
 // the address to see it. Every value is an example (the documented AWS example instance
@@ -12,6 +12,8 @@ export const sampleSnapshot: Snapshot = {
     {
       file: "old-team.hopdeck.yaml",
       name: "old-team.hopdeck.yaml",
+      profile: "",
+      suggestedProfile: "",
       problems: [
         {
           line: 1,
@@ -24,12 +26,15 @@ export const sampleSnapshot: Snapshot = {
     {
       file: "staging.hopdeck.yaml",
       name: "staging",
+      profile: "",
+      suggestedProfile: "example-admin",
       problems: [],
       tunnels: [
         {
           id: "staging.hopdeck.yaml/admin-api",
           name: "admin-api",
           deck: "staging",
+          deckFile: "staging.hopdeck.yaml",
           region: "eu-west-1",
           jumpHost: "tag:Name=staging-jump",
           remoteHost: "admin.api.example.internal",
@@ -44,12 +49,15 @@ export const sampleSnapshot: Snapshot = {
     {
       file: "team-databases.hopdeck.yaml",
       name: "team-databases",
+      profile: "example-dev",
+      suggestedProfile: "example-dev",
       problems: [],
       tunnels: [
         {
           id: "team-databases.hopdeck.yaml/orders-db",
           name: "orders-db",
           deck: "team-databases",
+          deckFile: "team-databases.hopdeck.yaml",
           region: "us-east-1",
           jumpHost: "i-1234567890abcdef0",
           remoteHost: "orders.db.example.internal",
@@ -63,6 +71,7 @@ export const sampleSnapshot: Snapshot = {
           id: "team-databases.hopdeck.yaml/reports-db",
           name: "reports-db",
           deck: "team-databases",
+          deckFile: "team-databases.hopdeck.yaml",
           region: "us-east-1",
           jumpHost: "tag:Role=jump-host",
           remoteHost: "reports.db.example.internal",
@@ -76,3 +85,43 @@ export const sampleSnapshot: Snapshot = {
     },
   ],
 };
+
+// Made-up AWS profiles for the sample.
+const sampleProfileOptions: ProfileOption[] = [
+  { name: "example-admin", kind: "role" },
+  { name: "example-dev", kind: "keys" },
+  { name: "example-sso", kind: "identity-center" },
+];
+
+// A profile source for the sample: it lists the made-up profiles and applies a choice
+// to the sample snapshot, as the Go side would after saving it.
+export function sampleProfiles(
+  apply: (change: (snapshot: Snapshot) => Snapshot) => void,
+): ProfileSource {
+  return {
+    async list() {
+      return { profiles: sampleProfileOptions, error: "" };
+    },
+    async choose(deckFile, profile) {
+      apply((snapshot) => ({
+        ...snapshot,
+        decks: snapshot.decks.map((deck) =>
+          deck.file !== deckFile
+            ? deck
+            : {
+                ...deck,
+                profile,
+                tunnels: deck.tunnels.map((tunnel): Tunnel => ({
+                  ...tunnel,
+                  profile: profile || null,
+                  state: "idle",
+                  reason: profile
+                    ? ""
+                    : "No AWS profile is chosen for this deck file yet.",
+                })),
+              },
+        ),
+      }));
+    },
+  };
+}

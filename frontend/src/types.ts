@@ -10,6 +10,8 @@ export interface Tunnel {
   name: string;
   /** The name of the deck the tunnel comes from. */
   deck: string;
+  /** The file name of that deck, which choices such as the profile are kept under. */
+  deckFile: string;
   region: string;
   /** The jump host as the deck file names it: an instance ID or a tag filter. */
   jumpHost: string;
@@ -37,6 +39,10 @@ export interface Problem {
 export interface DeckFile {
   file: string;
   name: string;
+  /** The local AWS profile chosen for this deck file; empty when none is. */
+  profile: string;
+  /** The profile the deck file suggests; empty when it suggests none. */
+  suggestedProfile: string;
   problems: Problem[];
   tunnels: Tunnel[];
 }
@@ -53,7 +59,7 @@ export interface Snapshot {
 
 /** A row of the list: a tunnel, or a deck file that cannot be read. */
 export type Row =
-  | { kind: "tunnel"; id: string; tunnel: Tunnel }
+  | { kind: "tunnel"; id: string; tunnel: Tunnel; deck: DeckFile }
   | { kind: "broken"; id: string; deck: DeckFile };
 
 export const emptySnapshot: Snapshot = {
@@ -72,6 +78,36 @@ export const stateLabels: Record<TunnelState, string> = {
   failed: "Failed",
 };
 
+export type ProfileKind =
+  "keys" | "role" | "identity-center" | "process" | "none";
+
+/** One AWS profile of this computer: its name and kind, never a credential. */
+export interface ProfileOption {
+  name: string;
+  kind: ProfileKind;
+}
+
+export interface ProfileList {
+  profiles: ProfileOption[];
+  /** Set when the AWS configuration files cannot be read. */
+  error: string;
+}
+
+/** Where the profile chooser gets its list and sends a choice: the Go side, or the
+ * development sample. */
+export interface ProfileSource {
+  list(): Promise<ProfileList>;
+  choose(deckFile: string, profile: string): Promise<void>;
+}
+
+export const kindLabels: Record<ProfileKind, string> = {
+  keys: "access keys",
+  role: "role",
+  "identity-center": "IAM Identity Center",
+  process: "credential process",
+  none: "no credentials",
+};
+
 /** The rows of the list, in the order of the deck files: each tunnel of a deck file that
  * loaded, and one row for each deck file that cannot be read. */
 export function rowsOf(snapshot: Snapshot): Row[] {
@@ -82,7 +118,7 @@ export function rowsOf(snapshot: Snapshot): Row[] {
       continue;
     }
     for (const tunnel of deck.tunnels) {
-      rows.push({ kind: "tunnel", id: tunnel.id, tunnel });
+      rows.push({ kind: "tunnel", id: tunnel.id, tunnel, deck });
     }
   }
   return rows;
