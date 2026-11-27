@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/SrZafkiell/hopdeck/main/docs/deck-file.schema.json",
+  "title": "Hopdeck deck file, format version 1",
+  "description": "A deck file describes the tunnels of a team (ADR 0004 in the clouddecks repository). Hopdeck's own parser is the authority: beyond this schema it refuses YAML anchors, aliases, merge keys and explicit tags, more than one document, files over 64 KiB, duplicate tunnel names and local ports, and any value that looks like an AWS credential.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "tunnels"],
+  "properties": {
+    "version": {
+      "description": "The format version. A file with a newer version needs a newer Hopdeck.",
+      "const": 1
+    },
+    "name": {
+      "description": "The name of the deck, shown in Hopdeck.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "profile": {
+      "description": "The AWS profile the file suggests. Each person maps the deck to a profile of their own.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._+@-]{1,64}$"
+    },
+    "region": {
+      "description": "The default region of every tunnel.",
+      "$ref": "#/$defs/region"
+    },
+    "tunnels": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/tunnel" }
+    }
+  },
+  "if": { "not": { "required": ["region"] } },
+  "then": {
+    "properties": {
+      "tunnels": { "items": { "required": ["region"] } }
+    }
+  },
+  "$defs": {
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]{1,2}$"
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "tunnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "jump_host", "remote", "local_port"],
+      "properties": {
+        "name": {
+          "description": "Unique in the file.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        },
+        "region": {
+          "description": "Overrides the file's region; required when the file sets none.",
+          "$ref": "#/$defs/region"
+        },
+        "jump_host": {
+          "description": "The instance the tunnel goes through: by its ID, or by tags.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "instance_id": {
+              "type": "string",
+              "pattern": "^i-([0-9a-f]{8}|[0-9a-f]{17})$"
+            },
+            "tags": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 10,
+              "propertyNames": { "minLength": 1, "maxLength": 128 },
+              "additionalProperties": { "type": "string", "maxLength": 256 }
+            }
+          }
+        },
+        "remote": {
+          "description": "Where the tunnel ends. Without a host, a port on the jump host itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port"],
+          "properties": {
+            "host": {
+              "description": "A DNS name or an IPv4 address behind the jump host.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253
+            },
+            "port": { "$ref": "#/$defs/port" }
+          }
+        },
+        "local_port": {
+          "description": "The port on 127.0.0.1 where the tunnel listens. Unique in the file.",
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        }
+      }
+    }
+  }
+}
