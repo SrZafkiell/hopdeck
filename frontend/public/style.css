@@ -301,3 +301,50 @@ code {
 .identity-note {
   color: var(--fg-muted);
 }
+
+.local-port p {
+  margin: 0;
+}
+
+.port-note,
+.port-state,
+.port-error {
+  margin-top: 4px;
+  font-size: 12px;
+  max-width: 560px;
+}
+
+.port-note,
+.port-checking {
+  color: var(--fg-muted);
+}
+
+.local-port .port-free {
+  color: var(--ok);
+}
+
+.local-port .port-busy,
+.local-port .port-error {
+  color: var(--bad);
+}
+
+.port-actions,
+.port-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.port-actions button,
+.port-form button,
+.port-form input {
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.port-form input {
+  width: 90px;
+}

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/SrZafkiell/hopdeck/internal/deck"
 )
 
 // Version is the schema version this build reads and writes. A later version comes with
@@ -30,11 +32,34 @@ type Settings struct {
 	Version int `json:"version"`
 	// Profiles maps a deck file name to the local AWS profile chosen for it.
 	Profiles map[string]string `json:"profiles"`
+	// Ports maps a deck file name and a tunnel name to the local port chosen for the
+	// tunnel on this computer, in place of the deck file's. A tunnel that is not here
+	// uses the deck file's port.
+	Ports map[string]map[string]int `json:"ports"`
 }
 
 // Defaults returns empty settings of the current version.
 func Defaults() Settings {
-	return Settings{Version: Version, Profiles: map[string]string{}}
+	return Settings{Version: Version, Profiles: map[string]string{}, Ports: map[string]map[string]int{}}
+}
+
+// Clone returns a deep copy, which the caller may change without touching s.
+func (s Settings) Clone() Settings {
+	clone := Settings{
+		Version:  s.Version,
+		Profiles: make(map[string]string, len(s.Profiles)),
+		Ports:    make(map[string]map[string]int, len(s.Ports)),
+	}
+	for file, profile := range s.Profiles {
+		clone.Profiles[file] = profile
+	}
+	for file, tunnels := range s.Ports {
+		clone.Ports[file] = make(map[string]int, len(tunnels))
+		for tunnel, port := range tunnels {
+			clone.Ports[file][tunnel] = port
+		}
+	}
+	return clone
 }
 
 // Store reads and writes one settings file. It is safe for concurrent use.
@@ -53,7 +78,8 @@ func NewStore(path string) *Store {
 }
 
 // Load reads the settings. A missing file gives the defaults. A file that cannot be used
-// (not JSON, an unknown field, a version this build does not read, too large) is renamed
+// (not JSON, an unknown field, a version this build does not read, a local port outside
+// the deck file format's range, too large) is renamed
 // to settings.json.set-aside-<time> and the defaults are used; the notice says so in
 // plain words, for the window to show. A file that cannot be opened at all also gives the
 // defaults and a notice, and the store then refuses to save over it.
@@ -99,6 +125,9 @@ func (s *Store) Save(settings Settings) error {
 	settings.Version = Version
 	if settings.Profiles == nil {
 		settings.Profiles = map[string]string{}
+	}
+	if settings.Ports == nil {
+		settings.Ports = map[string]map[string]int{}
 	}
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
@@ -168,6 +197,16 @@ func decode(data []byte) (Settings, string) {
 	}
 	if settings.Profiles == nil {
 		settings.Profiles = map[string]string{}
+	}
+	if settings.Ports == nil {
+		settings.Ports = map[string]map[string]int{}
+	}
+	for _, tunnels := range settings.Ports {
+		for _, port := range tunnels {
+			if port < deck.MinLocalPort || port > deck.MaxLocalPort {
+				return Settings{}, fmt.Sprintf("it holds a local port outside %d-%d", deck.MinLocalPort, deck.MaxLocalPort)
+			}
+		}
 	}
 	return settings, ""
 }

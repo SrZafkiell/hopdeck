@@ -13,6 +13,7 @@ import (
 	"github.com/SrZafkiell/hopdeck/internal/awsapi/awssdk"
 	"github.com/SrZafkiell/hopdeck/internal/deck"
 	"github.com/SrZafkiell/hopdeck/internal/identity"
+	"github.com/SrZafkiell/hopdeck/internal/ports"
 	"github.com/SrZafkiell/hopdeck/internal/profiles"
 	"github.com/SrZafkiell/hopdeck/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -72,7 +73,9 @@ type ProblemView struct {
 	Text  string `json:"text"`
 }
 
-// TunnelView is one tunnel as the window shows it.
+// TunnelView is one tunnel as the window shows it. LocalPort is the port the tunnel uses
+// on this computer, the one chosen for this computer or the deck file's; DeckPort is the
+// deck file's, so the window can offer to go back to it.
 type TunnelView struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
@@ -83,6 +86,7 @@ type TunnelView struct {
 	RemoteHost string  `json:"remoteHost"`
 	RemotePort int     `json:"remotePort"`
 	LocalPort  int     `json:"localPort"`
+	DeckPort   int     `json:"deckPort"`
 	Profile    *string `json:"profile"`
 	State      string  `json:"state"`
 	Reason     string  `json:"reason"`
@@ -110,6 +114,19 @@ type IdentityView struct {
 	Account string `json:"account"`
 	Caller  string `json:"caller"`
 	Reason  string `json:"reason"`
+}
+
+// PortView is the answer of a port check as the window shows it.
+type PortView struct {
+	Port int `json:"port"`
+	// Free is true when a tunnel could listen on the port now.
+	Free bool `json:"free"`
+	// Reason says in plain words, naming the port, why it cannot be used; empty when it
+	// is free.
+	Reason string `json:"reason"`
+	// Suggestion is a free port shortly after a port that cannot be used, one that no
+	// other tunnel uses on this computer; 0 when there is none.
+	Suggestion int `json:"suggestion"`
 }
 
 // DeckServiceOptions are what the deck service starts with.
@@ -141,7 +158,8 @@ type DeckService struct {
 	// emit sends a new snapshot to the window; main sets it once the app exists.
 	emit func(Snapshot)
 
-	// choosing serializes ChooseProfile, which reads, changes and saves the settings.
+	// choosing serializes ChooseProfile and ChoosePort, which read, change and save the
+	// settings.
 	choosing sync.Mutex
 
 	mu        sync.Mutex
@@ -217,10 +235,7 @@ func (s *DeckService) ChooseProfile(deckFile, profile string) error {
 		s.mu.Unlock()
 		return fmt.Errorf("the deck file %q is not loaded", deckFile)
 	}
-	next := settings.Settings{Version: s.settings.Version, Profiles: make(map[string]string, len(s.settings.Profiles)+1)}
-	for file, chosen := range s.settings.Profiles {
-		next.Profiles[file] = chosen
-	}
+	next := s.settings.Clone()
 	s.mu.Unlock()
 
 	if profile == "" {
@@ -258,6 +273,122 @@ func (s *DeckService) CheckProfile(profile, region string) IdentityView {
 	defer cancel()
 	result := s.check(ctx, profile, region)
 	return IdentityView{State: string(result.State), Account: result.Account, Caller: result.Caller, Reason: result.Reason}
+}
+
+// ChoosePort sets the local port one tunnel uses on this computer, in place of the deck
+// file's; 0, or the deck file's own port, goes back to the deck file's. The choice is
+// kept in the settings, never in the deck file, and the window gets a new snapshot. A
+// port outside 1024-65535, or one that another tunnel already uses on this computer, is
+// refused.
+func (s *DeckService) ChoosePort(deckFile, tunnelName string, port int) error {
+	s.choosing.Lock()
+	defer s.choosing.Unlock()
+
+	s.mu.Lock()
+	found, ok := s.tunnelOf(deckFile, tunnelName)
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("the tunnel %q is not in a loaded deck file %q", tunnelName, deckFile)
+	}
+	back := port == 0 || port == found.LocalPort
+	if !back {
+		if port < deck.MinLocalPort || port > deck.MaxLocalPort {
+			s.mu.Unlock()
+			return fmt.Errorf("the local port must be between %d and %d", deck.MinLocalPort, deck.MaxLocalPort)
+		}
+		if other, taken := s.portsInUse(deckFile, tunnelName)[port]; taken {
+			s.mu.Unlock()
+			return fmt.Errorf("port %d is already the local port of %s; pick a port that no other tunnel uses", port, other)
+		}
+	}
+	next := s.settings.Clone()
+	s.mu.Unlock()
+
+	if back {
+		delete(next.Ports[deckFile], tunnelName)
+		if len(next.Ports[deckFile]) == 0 {
+			delete(next.Ports, deckFile)
+		}
+	} else {
+		if next.Ports[deckFile] == nil {
+			next.Ports[deckFile] = map[string]int{}
+		}
+		next.Ports[deckFile][tunnelName] = port
+	}
+	if err := s.store.Save(next); err != nil {
+		return fmt.Errorf("the choice could not be saved: %w", err)
+	}
+
+	s.mu.Lock()
+	s.settings = next
+	s.mu.Unlock()
+	s.refresh()
+	return nil
+}
+
+// CheckPort checks the local port a tunnel uses on this computer: whether the tunnel
+// could listen on it now, or why not in plain words, with a free port to use instead.
+// It listens on 127.0.0.1 only and lets go of the port at once.
+func (s *DeckService) CheckPort(deckFile, tunnelName string) PortView {
+	s.mu.Lock()
+	found, ok := s.tunnelOf(deckFile, tunnelName)
+	port := localPort(s.settings.Ports, deckFile, found)
+	inUse := s.portsInUse(deckFile, tunnelName)
+	s.mu.Unlock()
+	if !ok {
+		return PortView{Reason: fmt.Sprintf("The tunnel %s is not in a loaded deck file %s.", tunnelName, deckFile)}
+	}
+
+	if err := ports.Check(port); err != nil {
+		avoid := func(candidate int) bool {
+			_, taken := inUse[candidate]
+			return taken
+		}
+		return PortView{Port: port, Reason: err.Error(), Suggestion: ports.Suggest(port, avoid)}
+	}
+	return PortView{Port: port, Free: true}
+}
+
+// tunnelOf finds a tunnel of a loaded deck file. The caller holds s.mu.
+func (s *DeckService) tunnelOf(deckFile, tunnelName string) (deck.Tunnel, bool) {
+	for _, file := range s.files {
+		if file.Name != deckFile || file.Err != nil {
+			continue
+		}
+		for _, tunnel := range file.Deck.Tunnels {
+			if tunnel.Name == tunnelName {
+				return tunnel, true
+			}
+		}
+	}
+	return deck.Tunnel{}, false
+}
+
+// portsInUse maps the local port of every tunnel of the loaded deck files, other than the
+// one named, to words that name that tunnel. The caller holds s.mu.
+func (s *DeckService) portsInUse(deckFile, tunnelName string) map[int]string {
+	inUse := map[int]string{}
+	for _, file := range s.files {
+		if file.Err != nil {
+			continue
+		}
+		for _, tunnel := range file.Deck.Tunnels {
+			if file.Name == deckFile && tunnel.Name == tunnelName {
+				continue
+			}
+			inUse[localPort(s.settings.Ports, file.Name, tunnel)] = fmt.Sprintf("the tunnel %s of the deck %s", tunnel.Name, file.Deck.Name)
+		}
+	}
+	return inUse
+}
+
+// localPort is the port a tunnel uses on this computer: the one chosen for this computer,
+// or the deck file's.
+func localPort(chosen map[string]map[string]int, deckFile string, tunnel deck.Tunnel) int {
+	if port, ok := chosen[deckFile][tunnel.Name]; ok {
+		return port
+	}
+	return tunnel.LocalPort
 }
 
 // sdkCheck checks a profile with the AWS SDK: it loads the profile from the AWS files
@@ -307,7 +438,7 @@ func (s *DeckService) refresh() {
 	// flagged as missing; the chooser shows the error instead.
 	known, _ := s.knownProfiles()
 	s.mu.Lock()
-	snapshot := snapshotOf(s.folder, s.files, s.folderErr, s.settings.Profiles, known)
+	snapshot := snapshotOf(s.folder, s.files, s.folderErr, s.settings, known)
 	snapshot.Notice = s.notice
 	s.snapshot = snapshot
 	emit := s.emit
@@ -339,11 +470,11 @@ func (s *DeckService) loaded(deckFile string) bool {
 	return false
 }
 
-// snapshotOf turns the files of the decks folder and the chosen profiles into what the
-// window shows. A tunnel is idle until the tunnel engine (M04) exists; its reason says
-// when no profile is chosen or the chosen one is missing. known is nil when the AWS
-// files could not be read.
-func snapshotOf(folder string, files []deck.File, err error, chosen map[string]string, known map[string]bool) Snapshot {
+// snapshotOf turns the files of the decks folder and the choices of this computer (the
+// profile of each deck file, the local port of a tunnel) into what the window shows. A
+// tunnel is idle until the tunnel engine (M04) exists; its reason says when no profile is
+// chosen or the chosen one is missing. known is nil when the AWS files could not be read.
+func snapshotOf(folder string, files []deck.File, err error, chosen settings.Settings, known map[string]bool) Snapshot {
 	snapshot := Snapshot{Folder: folder, Decks: []DeckFile{}}
 	if err != nil {
 		snapshot.Error = err.Error()
@@ -357,7 +488,7 @@ func snapshotOf(folder string, files []deck.File, err error, chosen map[string]s
 			continue
 		}
 		view.Name = file.Deck.Name
-		view.Profile = chosen[file.Name]
+		view.Profile = chosen.Profiles[file.Name]
 		view.SuggestedProfile = file.Deck.Profile
 
 		var profile *string
@@ -383,7 +514,8 @@ func snapshotOf(folder string, files []deck.File, err error, chosen map[string]s
 				JumpHost:   jumpHostText(tunnel.JumpHost),
 				RemoteHost: tunnel.Remote.Host,
 				RemotePort: tunnel.Remote.Port,
-				LocalPort:  tunnel.LocalPort,
+				LocalPort:  localPort(chosen.Ports, file.Name, tunnel),
+				DeckPort:   tunnel.LocalPort,
 				Profile:    profile,
 				State:      "idle",
 				Reason:     reason,

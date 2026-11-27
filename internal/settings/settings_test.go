@@ -20,13 +20,17 @@ func TestSaveAndLoad(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "not-yet-created")
 	path := filepath.Join(dir, FileName)
 	store := NewStore(path)
-	want := Settings{Profiles: map[string]string{"team.hopdeck.yaml": "example-dev"}}
+	want := Settings{
+		Profiles: map[string]string{"team.hopdeck.yaml": "example-dev"},
+		Ports:    map[string]map[string]int{"team.hopdeck.yaml": {"orders-db": 13307}},
+	}
 	if err := store.Save(want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	got, notice := NewStore(path).Load()
-	if notice != "" || got.Version != Version || got.Profiles["team.hopdeck.yaml"] != "example-dev" {
+	if notice != "" || got.Version != Version || got.Profiles["team.hopdeck.yaml"] != "example-dev" ||
+		got.Ports["team.hopdeck.yaml"]["orders-db"] != 13307 {
 		t.Fatalf("got %+v, %q", got, notice)
 	}
 
@@ -51,6 +55,9 @@ func TestUnusableFilesAreSetAside(t *testing.T) {
 		"newer version":    `{"version": 2, "profiles": {}}`,
 		"no version":       `{"profiles": {}}`,
 		"two JSON values":  `{"version": 1, "profiles": {}} {"version": 1}`,
+		"port below 1024":  `{"version": 1, "profiles": {}, "ports": {"team.hopdeck.yaml": {"db": 80}}}`,
+		"port above 65535": `{"version": 1, "profiles": {}, "ports": {"team.hopdeck.yaml": {"db": 70000}}}`,
+		"port as text":     `{"version": 1, "profiles": {}, "ports": {"team.hopdeck.yaml": {"db": "15432"}}}`,
 		"larger than 1MiB": `{"version": 1, "profiles": {"x": "` + strings.Repeat("a", maxSize) + `"}}`,
 	}
 	for name, content := range cases {
@@ -62,7 +69,7 @@ func TestUnusableFilesAreSetAside(t *testing.T) {
 			}
 			store := NewStore(path)
 			settings, notice := store.Load()
-			if settings.Version != Version || len(settings.Profiles) != 0 {
+			if settings.Version != Version || len(settings.Profiles) != 0 || settings.Ports == nil || len(settings.Ports) != 0 {
 				t.Fatalf("not the defaults: %+v", settings)
 			}
 			if !strings.Contains(notice, "could not be used") || !strings.Contains(notice, FileName+".set-aside-") {
@@ -78,7 +85,7 @@ func TestUnusableFilesAreSetAside(t *testing.T) {
 			if kept, _ := os.ReadFile(aside[0]); string(kept) != content {
 				t.Fatal("the set-aside file does not hold the old content")
 			}
-			if strings.Contains(notice, "colour") || strings.Contains(notice, "blue") {
+			if strings.Contains(notice, "colour") || strings.Contains(notice, "blue") || strings.Contains(notice, "70000") {
 				t.Fatalf("the notice repeats the file's content: %q", notice)
 			}
 			if err := store.Save(Defaults()); err != nil {
@@ -101,5 +108,36 @@ func TestUnreadableFileIsNeverOverwritten(t *testing.T) {
 	}
 	if err := store.Save(Defaults()); err == nil {
 		t.Fatal("Save wrote over a file it could not read")
+	}
+}
+
+// TestAFileWithoutPortsLoads reads a file written before ports were kept: it has no
+// ports field, and every tunnel keeps the deck file's port.
+func TestAFileWithoutPortsLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), FileName)
+	if err := os.WriteFile(path, []byte(`{"version": 1, "profiles": {"team.hopdeck.yaml": "example-dev"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings, notice := NewStore(path).Load()
+	if notice != "" || settings.Profiles["team.hopdeck.yaml"] != "example-dev" || settings.Ports == nil || len(settings.Ports) != 0 {
+		t.Fatalf("got %+v, %q", settings, notice)
+	}
+}
+
+func TestCloneIsDeep(t *testing.T) {
+	original := Settings{
+		Version:  Version,
+		Profiles: map[string]string{"a.hopdeck.yaml": "example-dev"},
+		Ports:    map[string]map[string]int{"a.hopdeck.yaml": {"db": 15433}},
+	}
+	clone := original.Clone()
+	clone.Profiles["a.hopdeck.yaml"] = "other"
+	clone.Ports["a.hopdeck.yaml"]["db"] = 15434
+	clone.Ports["b.hopdeck.yaml"] = map[string]int{"web": 18081}
+	if original.Profiles["a.hopdeck.yaml"] != "example-dev" || original.Ports["a.hopdeck.yaml"]["db"] != 15433 || len(original.Ports) != 1 {
+		t.Fatalf("changing the clone changed the original: %+v", original)
+	}
+	if empty := (Settings{}).Clone(); empty.Profiles == nil || empty.Ports == nil {
+		t.Fatalf("a clone of empty settings has nil maps: %+v", empty)
 	}
 }

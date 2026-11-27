@@ -25,6 +25,10 @@ const (
 	// Suffix ends the name of every deck file; other files in the decks folder are
 	// ignored.
 	Suffix = ".hopdeck.yaml"
+	// MinLocalPort and MaxLocalPort bound the local port of a tunnel. Ports below 1024
+	// need administrator rights on some systems, so the format leaves them out.
+	MinLocalPort = 1024
+	MaxLocalPort = 65535
 )
 
 // The Session Manager documents a tunnel uses.

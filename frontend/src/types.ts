@@ -18,7 +18,11 @@ export interface Tunnel {
   /** Empty for a port on the jump host itself. */
   remoteHost: string;
   remotePort: number;
+  /** The port the tunnel uses on 127.0.0.1 of this computer: the one picked for this
+   * computer, or the deck file's. */
   localPort: number;
+  /** The deck file's local port. */
+  deckPort: number;
   /** The local AWS profile mapped to the deck file, or null before one is chosen. */
   profile: string | null;
   state: TunnelState;
@@ -101,6 +105,29 @@ export interface ProfileSource {
   /** Asks AWS who the profile's credentials belong to; region is used when the profile
    * sets none. */
   check(profile: string, region: string): Promise<IdentityResult>;
+}
+
+/** The local ports a tunnel may use, as in the deck file format. */
+export const minLocalPort = 1024;
+export const maxLocalPort = 65535;
+
+/** The answer of a port check: whether a tunnel could listen on the port now, or why
+ * not, with a free port to use instead. */
+export interface PortCheck {
+  port: number;
+  free: boolean;
+  /** Why the port cannot be used, naming it; empty when it is free. */
+  reason: string;
+  /** A free port shortly after one that cannot be used; 0 when there is none. */
+  suggestion: number;
+}
+
+/** Where the local port panel checks a tunnel's port and sends a port picked for this
+ * computer: the Go side, or the development sample. */
+export interface PortSource {
+  check(tunnel: Tunnel): Promise<PortCheck>;
+  /** Picks the tunnel's port on this computer; 0 goes back to the deck file's. */
+  choose(tunnel: Tunnel, port: number): Promise<void>;
 }
 
 export type IdentityState =

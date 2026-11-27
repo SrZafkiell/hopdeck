@@ -1,21 +1,24 @@
 import {
   stateLabels,
   type DeckFile,
+  type PortSource,
   type Problem,
   type ProfileSource,
   type Row,
   type Tunnel,
 } from "../types";
 import { IdentityPanel } from "./IdentityPanel";
+import { LocalPortPanel } from "./LocalPortPanel";
 import { ProfileChooser } from "./ProfileChooser";
 
 interface DetailPaneProps {
   row: Row | null;
   profiles: ProfileSource;
+  ports: PortSource;
 }
 
 // The selected row in detail: where a tunnel goes, or why a deck file cannot be read.
-export function DetailPane({ row, profiles }: DetailPaneProps) {
+export function DetailPane({ row, profiles, ports }: DetailPaneProps) {
   if (row === null) {
     return (
       <p className="detail-hint">
@@ -24,7 +27,12 @@ export function DetailPane({ row, profiles }: DetailPaneProps) {
     );
   }
   return row.kind === "tunnel" ? (
-    <TunnelDetail tunnel={row.tunnel} deck={row.deck} profiles={profiles} />
+    <TunnelDetail
+      tunnel={row.tunnel}
+      deck={row.deck}
+      profiles={profiles}
+      ports={ports}
+    />
   ) : (
     <BrokenDeck deck={row.deck} />
   );
@@ -36,10 +44,12 @@ function TunnelDetail({
   tunnel,
   deck,
   profiles,
+  ports,
 }: {
   tunnel: Tunnel;
   deck: DeckFile;
   profiles: ProfileSource;
+  ports: PortSource;
 }) {
   return (
     <article className="detail" aria-labelledby="detail-title">
@@ -53,7 +63,7 @@ function TunnelDetail({
       <dl className="detail-fields">
         <dt>Local address</dt>
         <dd>
-          <code>127.0.0.1:{tunnel.localPort}</code>
+          <LocalPortPanel key={tunnel.id} tunnel={tunnel} source={ports} />
         </dd>
         <dt>Remote</dt>
         <dd>

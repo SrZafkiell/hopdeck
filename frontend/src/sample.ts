@@ -1,4 +1,12 @@
-import type { ProfileOption, ProfileSource, Snapshot, Tunnel } from "./types";
+import {
+  maxLocalPort,
+  minLocalPort,
+  type PortSource,
+  type ProfileOption,
+  type ProfileSource,
+  type Snapshot,
+  type Tunnel,
+} from "./types";
 
 // A made-up decks folder for development previews: open the dev server with ?sample in
 // the address to see it. Every value is an example (the documented AWS example instance
@@ -40,6 +48,7 @@ export const sampleSnapshot: Snapshot = {
           remoteHost: "admin.api.example.internal",
           remotePort: 8443,
           localPort: 18443,
+          deckPort: 18443,
           profile: null,
           state: "failed",
           reason: "No AWS profile is chosen for this deck file yet.",
@@ -63,6 +72,7 @@ export const sampleSnapshot: Snapshot = {
           remoteHost: "orders.db.example.internal",
           remotePort: 3306,
           localPort: 13306,
+          deckPort: 13306,
           profile: "example-dev",
           state: "connected",
           reason: "",
@@ -77,6 +87,7 @@ export const sampleSnapshot: Snapshot = {
           remoteHost: "reports.db.example.internal",
           remotePort: 5432,
           localPort: 15432,
+          deckPort: 15432,
           profile: "example-dev",
           state: "idle",
           reason: "",
@@ -152,6 +163,56 @@ export function sampleProfiles(
                 })),
               },
         ),
+      }));
+    },
+  };
+}
+
+// A port source for the sample. On the made-up computer, port 15432 is busy with 15433
+// suggested, the ports 49152 to 49251 are kept by the system, and every other port is
+// free. A picked port is applied to the sample snapshot, as the Go side would after
+// saving it.
+export function samplePorts(
+  apply: (change: (snapshot: Snapshot) => Snapshot) => void,
+): PortSource {
+  return {
+    async check(tunnel) {
+      const port = tunnel.localPort;
+      if (port === 15432) {
+        return {
+          port,
+          free: false,
+          reason:
+            "Port 15432 on this computer is already in use by another program. Pick another port for this tunnel, or close that program.",
+          suggestion: 15433,
+        };
+      }
+      if (port >= 49152 && port <= 49251) {
+        return {
+          port,
+          free: false,
+          reason: `This computer does not allow listening on port ${port}. On Windows that usually means the port is in a range the system keeps for itself, for example for Hyper-V. Pick another port for this tunnel.`,
+          suggestion: 0,
+        };
+      }
+      return { port, free: true, reason: "", suggestion: 0 };
+    },
+    async choose(tunnel, port) {
+      if (port !== 0 && (port < minLocalPort || port > maxLocalPort)) {
+        throw new Error(
+          `the local port must be between ${minLocalPort} and ${maxLocalPort}`,
+        );
+      }
+      apply((snapshot) => ({
+        ...snapshot,
+        decks: snapshot.decks.map((deck) => ({
+          ...deck,
+          tunnels: deck.tunnels.map((each): Tunnel =>
+            each.id !== tunnel.id
+              ? each
+              : { ...each, localPort: port === 0 ? each.deckPort : port },
+          ),
+        })),
       }));
     },
   };
