@@ -20,8 +20,37 @@ so that the work fits the plan.
 
 ## Development setup
 
-The pinned Go, Node and Wails versions and the `task` commands to lint, test and run the
-app arrive with step P0-20; until then this repository holds no code.
+You need:
+
+- Go 1.26 or newer. The toolchain line of `go.mod` pins go1.27.4, and Go downloads that
+  release by itself when yours is older.
+- Node.js 22.23.4 (the version in `.nvmrc`) with npm.
+- [Task](https://taskfile.dev) and Python 3 with pre-commit
+  (`python -m pip install --user pre-commit`).
+- On Windows, the WebView2 runtime, which Windows 11 includes.
+
+Once per clone:
+
+```
+task setup
+```
+
+It installs the pinned Wails CLI and the front-end packages, checks that Go, Node and the
+Wails CLI match the pinned versions, and installs the git hooks.
+
+Day to day:
+
+| Command | What it does |
+|---|---|
+| `task dev` | Opens the app window with live reload |
+| `task lint` | gofmt check, go vet, TypeScript type check, Prettier check |
+| `task test` | Runs the Go tests |
+| `task format` | Rewrites the Go and front-end files with gofmt and Prettier |
+| `task build` | Builds one executable in `bin/` |
+| `task versions` | Compares Go, Node and the Wails CLI with the pinned versions |
+
+The git hooks run gofmt, Prettier, gitleaks and a few hygiene checks on every commit.
+Run them on every file with `python -m pre_commit run --all-files`.
 
 ## Never put real account data anywhere
 
