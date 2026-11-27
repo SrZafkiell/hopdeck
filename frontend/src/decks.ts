@@ -5,6 +5,7 @@ import {
   kindLabels,
   stateLabels,
   type IdentityState,
+  type PortSource,
   type ProfileKind,
   type ProfileSource,
   type Snapshot,
@@ -71,6 +72,24 @@ export const goProfiles: ProfileSource = {
   async check(profile, region) {
     const view = await DeckService.CheckProfile(profile, region);
     return { ...view, state: toIdentityState(view.state) };
+  },
+};
+
+// goPorts checks a tunnel's local port on this computer and sends a port picked for
+// this computer to the Go side, which keeps it in the settings and answers with a new
+// snapshot.
+export const goPorts: PortSource = {
+  async check(tunnel) {
+    const view = await DeckService.CheckPort(tunnel.deckFile, tunnel.name);
+    return {
+      port: view.port,
+      free: view.free,
+      reason: view.reason,
+      suggestion: view.suggestion,
+    };
+  },
+  async choose(tunnel, port) {
+    await DeckService.ChoosePort(tunnel.deckFile, tunnel.name, port);
   },
 };
 

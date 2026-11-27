@@ -3,11 +3,12 @@ import { DetailPane } from "./components/DetailPane";
 import { EmptyState } from "./components/EmptyState";
 import { StatusBar } from "./components/StatusBar";
 import { TunnelList } from "./components/TunnelList";
-import { goProfiles, watchDecks } from "./decks";
-import { sampleProfiles, sampleSnapshot } from "./sample";
+import { goPorts, goProfiles, watchDecks } from "./decks";
+import { samplePorts, sampleProfiles, sampleSnapshot } from "./sample";
 import {
   emptySnapshot,
   rowsOf,
+  type PortSource,
   type ProfileSource,
   type Snapshot,
 } from "./types";
@@ -26,6 +27,10 @@ function App() {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const profiles = useMemo<ProfileSource>(
     () => (usingSample ? sampleProfiles(setSnapshot) : goProfiles),
+    [],
+  );
+  const ports = useMemo<PortSource>(
+    () => (usingSample ? samplePorts(setSnapshot) : goPorts),
     [],
   );
 
@@ -61,7 +66,7 @@ function App() {
           {rows.length === 0 ? (
             <EmptyState folder={snapshot.folder} error={snapshot.error} />
           ) : (
-            <DetailPane row={selected} profiles={profiles} />
+            <DetailPane row={selected} profiles={profiles} ports={ports} />
           )}
         </main>
       </div>
