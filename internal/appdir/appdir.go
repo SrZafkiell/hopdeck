@@ -10,6 +10,13 @@ import (
 // for development and tests.
 const DecksEnv = "HOPDECK_DECKS_DIR"
 
+// SettingsEnv names an environment variable that points Hopdeck at another settings
+// file, for development and tests.
+const SettingsEnv = "HOPDECK_SETTINGS_FILE"
+
+// settingsName is the settings file's name in the application folder.
+const settingsName = "settings.json"
+
 // Root returns the per-user application folder: %AppData%\Hopdeck on Windows, and
 // $XDG_CONFIG_HOME/Hopdeck or ~/.config/Hopdeck on Linux.
 func Root() (string, error) {
@@ -35,4 +42,18 @@ func Decks() (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// SettingsFile returns the path of the settings file, next to the decks folder in the
+// application folder. The file itself is created by the first save. SettingsEnv
+// overrides the location.
+func SettingsFile() (string, error) {
+	if path := os.Getenv(SettingsEnv); path != "" {
+		return path, nil
+	}
+	root, err := Root()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, settingsName), nil
 }

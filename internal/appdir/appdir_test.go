@@ -29,6 +29,27 @@ func TestDecksDefaultsToTheUserConfigFolder(t *testing.T) {
 	}
 }
 
+func TestSettingsFileSitsInTheApplicationFolder(t *testing.T) {
+	base := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Setenv("AppData", base)
+	} else {
+		t.Setenv("XDG_CONFIG_HOME", base)
+	}
+	t.Setenv(SettingsEnv, "")
+
+	path, err := SettingsFile()
+	if err != nil || path != filepath.Join(base, "Hopdeck", "settings.json") {
+		t.Fatalf("got %s, %v", path, err)
+	}
+
+	other := filepath.Join(t.TempDir(), "other.json")
+	t.Setenv(SettingsEnv, other)
+	if path, err := SettingsFile(); err != nil || path != other {
+		t.Fatalf("override: got %s, %v", path, err)
+	}
+}
+
 func TestDecksFollowsTheEnvironmentVariable(t *testing.T) {
 	want := filepath.Join(t.TempDir(), "elsewhere")
 	t.Setenv(DecksEnv, want)
