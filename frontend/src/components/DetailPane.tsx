@@ -2,16 +2,19 @@ import {
   stateLabels,
   type DeckFile,
   type Problem,
+  type ProfileSource,
   type Row,
   type Tunnel,
 } from "../types";
+import { ProfileChooser } from "./ProfileChooser";
 
 interface DetailPaneProps {
   row: Row | null;
+  profiles: ProfileSource;
 }
 
 // The selected row in detail: where a tunnel goes, or why a deck file cannot be read.
-export function DetailPane({ row }: DetailPaneProps) {
+export function DetailPane({ row, profiles }: DetailPaneProps) {
   if (row === null) {
     return (
       <p className="detail-hint">
@@ -20,15 +23,23 @@ export function DetailPane({ row }: DetailPaneProps) {
     );
   }
   return row.kind === "tunnel" ? (
-    <TunnelDetail tunnel={row.tunnel} />
+    <TunnelDetail tunnel={row.tunnel} deck={row.deck} profiles={profiles} />
   ) : (
     <BrokenDeck deck={row.deck} />
   );
 }
 
 // Where a tunnel goes: the local address to use, the remote end, the jump host and the
-// AWS profile, with the state and its reason on top.
-function TunnelDetail({ tunnel }: { tunnel: Tunnel }) {
+// AWS profile of its deck file, with the state and its reason on top.
+function TunnelDetail({
+  tunnel,
+  deck,
+  profiles,
+}: {
+  tunnel: Tunnel;
+  deck: DeckFile;
+  profiles: ProfileSource;
+}) {
   return (
     <article className="detail" aria-labelledby="detail-title">
       <h2 id="detail-title">{tunnel.name}</h2>
@@ -62,7 +73,9 @@ function TunnelDetail({ tunnel }: { tunnel: Tunnel }) {
         <dt>Region</dt>
         <dd>{tunnel.region}</dd>
         <dt>AWS profile</dt>
-        <dd>{tunnel.profile ?? "Not chosen yet"}</dd>
+        <dd>
+          <ProfileChooser deck={deck} source={profiles} />
+        </dd>
         <dt>Deck</dt>
         <dd>{tunnel.deck}</dd>
       </dl>

@@ -10,14 +10,20 @@ import (
 	"time"
 
 	"github.com/SrZafkiell/hopdeck/internal/deck"
+	"github.com/SrZafkiell/hopdeck/internal/profiles"
+	"github.com/SrZafkiell/hopdeck/internal/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// eventDecks carries a new Snapshot to the window whenever the decks folder changes.
+// eventDecks carries a new Snapshot to the window whenever the decks folder or a choice
+// changes.
 const eventDecks = "decks"
 
 // pollInterval is how often the decks folder is checked for changes.
 const pollInterval = 2 * time.Second
+
+// reasonNoProfile is the reason of every tunnel of a deck file that has no profile yet.
+const reasonNoProfile = "No AWS profile is chosen for this deck file yet."
 
 func init() {
 	application.RegisterEvent[Snapshot](eventDecks)
@@ -37,10 +43,14 @@ type Snapshot struct {
 
 // DeckFile is one deck file: its tunnels, or the problems that keep it from loading.
 type DeckFile struct {
-	File     string        `json:"file"`
-	Name     string        `json:"name"`
-	Problems []ProblemView `json:"problems"`
-	Tunnels  []TunnelView  `json:"tunnels"`
+	File string `json:"file"`
+	Name string `json:"name"`
+	// Profile is the local AWS profile chosen for this deck file; empty when none is.
+	Profile string `json:"profile"`
+	// SuggestedProfile is the profile the deck file suggests; empty when it suggests none.
+	SuggestedProfile string        `json:"suggestedProfile"`
+	Problems         []ProblemView `json:"problems"`
+	Tunnels          []TunnelView  `json:"tunnels"`
 }
 
 // ProblemView is one problem of a deck file that cannot be used.
@@ -55,6 +65,7 @@ type TunnelView struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
 	Deck       string  `json:"deck"`
+	DeckFile   string  `json:"deckFile"`
 	Region     string  `json:"region"`
 	JumpHost   string  `json:"jumpHost"`
 	RemoteHost string  `json:"remoteHost"`
@@ -65,26 +76,69 @@ type TunnelView struct {
 	Reason     string  `json:"reason"`
 }
 
-// DeckService watches the decks folder and gives the window its content. It is the only
-// place that turns the Go core's decks into what the window shows.
+// ProfileView is one AWS profile of this computer as the window lists it: its name and
+// kind, never a credential.
+type ProfileView struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// ProfileList is what the profile chooser shows.
+type ProfileList struct {
+	Profiles []ProfileView `json:"profiles"`
+	// Error is set when the AWS configuration files cannot be read.
+	Error string `json:"error"`
+}
+
+// DeckServiceOptions are what the deck service starts with.
+type DeckServiceOptions struct {
+	// Folder is the decks folder.
+	Folder string
+	// Notice is shown in the window until the person dismisses it.
+	Notice string
+	// Store keeps the choices; Settings are the ones loaded at start.
+	Store    *settings.Store
+	Settings settings.Settings
+	// ProfileFiles are the AWS configuration files the profiles come from.
+	ProfileFiles profiles.Files
+}
+
+// DeckService watches the decks folder, keeps the profile chosen for each deck file, and
+// gives the window its content. It is the only place that turns the Go core's decks and
+// profiles into what the window shows. Its exported methods other than the service
+// lifecycle are what the window may call.
 type DeckService struct {
-	folder string
-	notice string
+	folder       string
+	notice       string
+	store        *settings.Store
+	profileFiles profiles.Files
 	// emit sends a new snapshot to the window; main sets it once the app exists.
 	emit func(Snapshot)
 
-	mu       sync.Mutex
-	snapshot Snapshot
-	stop     context.CancelFunc
+	// choosing serializes ChooseProfile, which reads, changes and saves the settings.
+	choosing sync.Mutex
+
+	mu        sync.Mutex
+	settings  settings.Settings
+	files     []deck.File
+	folderErr error
+	snapshot  Snapshot
+	stop      context.CancelFunc
 }
 
-// NewDeckService returns a service for the given decks folder. The notice, if any, is
-// shown in the window until the person dismisses it.
-func NewDeckService(folder, notice string) *DeckService {
+// NewDeckService returns a service with the given options.
+func NewDeckService(options DeckServiceOptions) *DeckService {
+	current := options.Settings
+	if current.Profiles == nil {
+		current = settings.Defaults()
+	}
 	return &DeckService{
-		folder:   folder,
-		notice:   notice,
-		snapshot: Snapshot{Folder: folder, Decks: []DeckFile{}, Notice: notice},
+		folder:       options.Folder,
+		notice:       options.Notice,
+		store:        options.Store,
+		profileFiles: options.ProfileFiles,
+		settings:     current,
+		snapshot:     Snapshot{Folder: options.Folder, Decks: []DeckFile{}, Notice: options.Notice},
 	}
 }
 
@@ -93,6 +147,65 @@ func (s *DeckService) Snapshot() Snapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.snapshot
+}
+
+// Profiles lists the AWS profiles of this computer by name and kind, read fresh from the
+// AWS configuration files each time.
+func (s *DeckService) Profiles() ProfileList {
+	list := ProfileList{Profiles: []ProfileView{}}
+	result, err := profiles.Discover(s.profileFiles)
+	if err != nil {
+		list.Error = err.Error()
+		return list
+	}
+	for _, profile := range result.Profiles {
+		list.Profiles = append(list.Profiles, ProfileView{Name: profile.Name, Kind: string(profile.Kind)})
+	}
+	return list
+}
+
+// ChooseProfile maps a loaded deck file to one of this computer's AWS profiles, or
+// removes the mapping when profile is empty. The choice is kept in the settings, never
+// in the deck file, and the window gets a new snapshot.
+func (s *DeckService) ChooseProfile(deckFile, profile string) error {
+	s.choosing.Lock()
+	defer s.choosing.Unlock()
+
+	if profile != "" {
+		known, err := s.knownProfiles()
+		if err != nil {
+			return fmt.Errorf("the AWS configuration files cannot be read: %w", err)
+		}
+		if !known[profile] {
+			return fmt.Errorf("the profile %q is not in your AWS configuration files", profile)
+		}
+	}
+
+	s.mu.Lock()
+	if !s.loaded(deckFile) {
+		s.mu.Unlock()
+		return fmt.Errorf("the deck file %q is not loaded", deckFile)
+	}
+	next := settings.Settings{Version: s.settings.Version, Profiles: make(map[string]string, len(s.settings.Profiles)+1)}
+	for file, chosen := range s.settings.Profiles {
+		next.Profiles[file] = chosen
+	}
+	s.mu.Unlock()
+
+	if profile == "" {
+		delete(next.Profiles, deckFile)
+	} else {
+		next.Profiles[deckFile] = profile
+	}
+	if err := s.store.Save(next); err != nil {
+		return fmt.Errorf("the choice could not be saved: %w", err)
+	}
+
+	s.mu.Lock()
+	s.settings = next
+	s.mu.Unlock()
+	s.refresh()
+	return nil
 }
 
 // ServiceStartup starts watching the decks folder when the app starts.
@@ -115,10 +228,23 @@ func (s *DeckService) ServiceShutdown() error {
 	return nil
 }
 
+// update takes the deck files Watch reports and refreshes the window.
 func (s *DeckService) update(files []deck.File, err error) {
-	snapshot := snapshotOf(s.folder, files, err)
-	snapshot.Notice = s.notice
 	s.mu.Lock()
+	s.files = files
+	s.folderErr = err
+	s.mu.Unlock()
+	s.refresh()
+}
+
+// refresh rebuilds the snapshot from the latest deck files and choices, and sends it.
+func (s *DeckService) refresh() {
+	// When the AWS files cannot be read, known stays nil and a chosen profile is not
+	// flagged as missing; the chooser shows the error instead.
+	known, _ := s.knownProfiles()
+	s.mu.Lock()
+	snapshot := snapshotOf(s.folder, s.files, s.folderErr, s.settings.Profiles, known)
+	snapshot.Notice = s.notice
 	s.snapshot = snapshot
 	emit := s.emit
 	s.mu.Unlock()
@@ -127,10 +253,33 @@ func (s *DeckService) update(files []deck.File, err error) {
 	}
 }
 
-// snapshotOf turns the files of the decks folder into what the window shows. A tunnel
-// has no profile and is idle until profile mapping (M02-06) and the tunnel engine (M04)
-// exist.
-func snapshotOf(folder string, files []deck.File, err error) Snapshot {
+func (s *DeckService) knownProfiles() (map[string]bool, error) {
+	result, err := profiles.Discover(s.profileFiles)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(result.Profiles))
+	for _, profile := range result.Profiles {
+		known[profile.Name] = true
+	}
+	return known, nil
+}
+
+// loaded reports whether deckFile is a deck file that loaded. The caller holds s.mu.
+func (s *DeckService) loaded(deckFile string) bool {
+	for _, file := range s.files {
+		if file.Name == deckFile && file.Err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// snapshotOf turns the files of the decks folder and the chosen profiles into what the
+// window shows. A tunnel is idle until the tunnel engine (M04) exists; its reason says
+// when no profile is chosen or the chosen one is missing. known is nil when the AWS
+// files could not be read.
+func snapshotOf(folder string, files []deck.File, err error, chosen map[string]string, known map[string]bool) Snapshot {
 	snapshot := Snapshot{Folder: folder, Decks: []DeckFile{}}
 	if err != nil {
 		snapshot.Error = err.Error()
@@ -144,17 +293,36 @@ func snapshotOf(folder string, files []deck.File, err error) Snapshot {
 			continue
 		}
 		view.Name = file.Deck.Name
+		view.Profile = chosen[file.Name]
+		view.SuggestedProfile = file.Deck.Profile
+
+		var profile *string
+		reason := ""
+		switch {
+		case view.Profile == "":
+			reason = reasonNoProfile
+		case known != nil && !known[view.Profile]:
+			name := view.Profile
+			profile = &name
+			reason = fmt.Sprintf("The AWS profile %s chosen for this deck file is not in your AWS configuration files.", view.Profile)
+		default:
+			name := view.Profile
+			profile = &name
+		}
 		for _, tunnel := range file.Deck.Tunnels {
 			view.Tunnels = append(view.Tunnels, TunnelView{
 				ID:         file.Name + "/" + tunnel.Name,
 				Name:       tunnel.Name,
 				Deck:       file.Deck.Name,
+				DeckFile:   file.Name,
 				Region:     tunnel.Region,
 				JumpHost:   jumpHostText(tunnel.JumpHost),
 				RemoteHost: tunnel.Remote.Host,
 				RemotePort: tunnel.Remote.Port,
 				LocalPort:  tunnel.LocalPort,
+				Profile:    profile,
 				State:      "idle",
+				Reason:     reason,
 			})
 		}
 		snapshot.Decks = append(snapshot.Decks, view)
