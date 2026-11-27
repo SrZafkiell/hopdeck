@@ -6,6 +6,7 @@ import {
   type Row,
   type Tunnel,
 } from "../types";
+import { IdentityPanel } from "./IdentityPanel";
 import { ProfileChooser } from "./ProfileChooser";
 
 interface DetailPaneProps {
@@ -76,6 +77,18 @@ function TunnelDetail({
         <dd>
           <ProfileChooser deck={deck} source={profiles} />
         </dd>
+        {deck.profile && (
+          <>
+            <dt>Identity</dt>
+            <dd>
+              <IdentityPanel
+                profile={deck.profile}
+                region={tunnel.region}
+                source={profiles}
+              />
+            </dd>
+          </>
+        )}
         <dt>Deck</dt>
         <dd>{tunnel.deck}</dd>
       </dl>

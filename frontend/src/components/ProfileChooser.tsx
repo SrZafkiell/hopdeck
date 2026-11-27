@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { messageOf } from "../text";
 import {
   kindLabels,
   type DeckFile,
@@ -92,8 +93,4 @@ export function ProfileChooser({ deck, source }: ProfileChooserProps) {
       )}
     </div>
   );
-}
-
-function messageOf(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
 }

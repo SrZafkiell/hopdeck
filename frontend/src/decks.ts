@@ -4,6 +4,7 @@ import type * as models from "../bindings/github.com/SrZafkiell/hopdeck/models";
 import {
   kindLabels,
   stateLabels,
+  type IdentityState,
   type ProfileKind,
   type ProfileSource,
   type Snapshot,
@@ -67,7 +68,23 @@ export const goProfiles: ProfileSource = {
   async choose(deckFile, profile) {
     await DeckService.ChooseProfile(deckFile, profile);
   },
+  async check(profile, region) {
+    const view = await DeckService.CheckProfile(profile, region);
+    return { ...view, state: toIdentityState(view.state) };
+  },
 };
+
+const identityStates: IdentityState[] = [
+  "valid",
+  "expired",
+  "needs-mfa",
+  "needs-sign-in",
+  "error",
+];
+
+function toIdentityState(state: string): IdentityState {
+  return identityStates.find((known) => known === state) ?? "error";
+}
 
 function toKind(kind: string): ProfileKind {
   return Object.prototype.hasOwnProperty.call(kindLabels, kind)

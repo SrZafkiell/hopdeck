@@ -258,3 +258,46 @@ code {
 .chooser-error {
   color: var(--bad);
 }
+
+.identity p {
+  margin: 0;
+}
+
+.identity-state {
+  font-weight: 600;
+}
+
+.identity-valid .identity-state {
+  color: var(--ok);
+}
+
+.identity-expired .identity-state,
+.identity-needs-mfa .identity-state,
+.identity-needs-sign-in .identity-state {
+  color: var(--busy);
+}
+
+.identity-error .identity-state {
+  color: var(--bad);
+}
+
+.identity-who {
+  max-width: 560px;
+  overflow-wrap: anywhere;
+}
+
+.identity-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.identity-actions button {
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.identity-note {
+  color: var(--fg-muted);
+}
