@@ -1,0 +1,52 @@
+# Secrets and keys: never committed, whatever their folder.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.ppk
+id_rsa*
+id_ecdsa*
+id_ed25519*
+
+# AWS configuration and credentials, if a copy ever lands in a working tree.
+.aws/
+aws-credentials*
+credentials.csv
+*_accessKeys.csv
+
+# Terraform: state and variables hold account-specific values (lab, M04-11).
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+.terraform.lock.hcl.bak
+
+# Build output and dependencies.
+build/bin/
+dist/
+bin/
+node_modules/
+frontend/dist/
+coverage/
+*.out
+*.test
+
+# Python caches of the plan scripts.
+__pycache__/
+*.py[cod]
+
+# Editors and operating systems.
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs.
+*.log
