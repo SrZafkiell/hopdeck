@@ -124,7 +124,8 @@ A step is done when its "Done when" holds and:
 - the tests pass, including the negative tests of anything that handles a credential or
   reads a deck file (what must be refused, and what must never be written);
 - the documentation is updated;
-- an ADR is written if a decision was made;
+- a decision record is written in [clouddecks/docs/adr](https://github.com/SrZafkiell/clouddecks/tree/main/docs/adr)
+  if a decision was made (this repository keeps none of its own);
 - the threat model and the risk register of Clouddecks are updated if a trust boundary or a risk changed;
 - the published results are updated if a measured number changed.
 
