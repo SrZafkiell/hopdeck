@@ -9,6 +9,10 @@ vars:
   # by `wails3 build GOOS=...` (or the GOOS env var) for cross-compilation. The
   # tasks below dispatch to the matching platform Taskfile via this variable.
   GOOS: '{{.GOOS | default OS}}'
+  # The Wails CLI must match the Wails module in go.mod. Go itself is pinned by the
+  # toolchain line of go.mod and Node by .nvmrc; `task versions` checks all three.
+  WAILS_VERSION: v3.1.0
+  PYTHON: '{{if eq OS "windows"}}python{{else}}python3{{end}}'
 
 includes:
   common: ./build/Taskfile.yml
@@ -37,3 +41,48 @@ tasks:
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
+  setup:
+    summary: Installs the pinned Wails CLI, the front-end dependencies and the git hooks
+    cmds:
+      - go install github.com/wailsapp/wails/v3/cmd/wails3@{{.WAILS_VERSION}}
+      - task: common:install:frontend:deps
+      - task: versions
+      - '{{.PYTHON}} -m pre_commit install'
+
+  versions:
+    summary: Checks that Go, Node and the Wails CLI match the pinned versions
+    cmds:
+      - node scripts/check-versions.mjs {{.WAILS_VERSION}}
+
+  lint:
+    summary: Checks formatting, vets the Go code and type-checks the front end
+    deps:
+      - task: common:build:frontend
+        vars:
+          DEV: "true"
+    cmds:
+      - cmd: test -z "$(gofmt -l .)" || (gofmt -l . && echo "gofmt found unformatted files, run task format" && exit 1)
+      - go vet ./...
+      - task: common:frontend:run
+        vars:
+          SCRIPT: typecheck
+      - task: common:frontend:run
+        vars:
+          SCRIPT: format:check
+
+  test:
+    summary: Runs the Go tests (the front-end tests arrive with M01-08)
+    deps:
+      - task: common:build:frontend
+        vars:
+          DEV: "true"
+    cmds:
+      - go test ./...
+
+  format:
+    summary: Formats the Go code and the front end
+    cmds:
+      - gofmt -w .
+      - task: common:frontend:run
+        vars:
+          SCRIPT: format
