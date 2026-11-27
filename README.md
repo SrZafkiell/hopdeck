@@ -3,7 +3,8 @@
 A desktop app that opens AWS Session Manager tunnels through a jump host to private
 services, such as a database, from a shared deck file.
 
-> Status: planning. Hopdeck is the first deck of
+> Status: early development. The window builds and runs; it does not open a tunnel yet.
+> Hopdeck is the first deck of
 > [Clouddecks](https://github.com/SrZafkiell/clouddecks). The plan, the decisions and the
 > risk register live there; work is tracked in issues, milestones and one
 > [project board](https://github.com/users/SrZafkiell/projects/3) across the
